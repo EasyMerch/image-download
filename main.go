@@ -217,6 +217,8 @@ func run1(f fyne.URIReadCloser, num int, app fyne.App, output *widget.Entry, ope
 		ch <- [3]string{url, filePath, dataDir}
 	}
 
+	output.SetText(output.Text + "\nDownload completed")
+
 	close(ch)
 
 	openFileBtn.Enable()
