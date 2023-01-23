@@ -64,7 +64,6 @@ func main() {
 		ex, err := os.Executable()
 		if err == nil {
 
-			ex = `D:/work/downloader/images (4).txt`
 			exPath := filepath.Dir(ex)
 			warn(exPath)
 
