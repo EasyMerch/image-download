@@ -1,0 +1,138 @@
+name: Release
+on:
+  release:
+    types: 
+      - created
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build App
+    runs-on: ubuntu-22.04
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Generate Windows Executable
+        uses: crazy-max/ghaction-xgo@v2
+        with:
+          xgo_version: latest
+          go_version: 1.18
+          dest: windows-build
+          prefix: em-image-downloader
+          targets: windows/amd64
+          v: true
+          x: false
+          race: false
+          ldflags: "-s -w -H=windowsgui"
+          buildmode: default
+          trimpath: true
+
+      - name: Generate Mac Executable
+        uses: crazy-max/ghaction-xgo@v2
+        with:
+          xgo_version: latest
+          go_version: 1.18
+          dest: other-build
+          prefix: em-image-downloader
+          targets: darwin/amd64
+          v: true
+          x: false
+          race: false
+          ldflags: -s -w
+          buildmode: default
+          trimpath: true
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-artifact
+          path: windows-build
+
+      - name: Upload Mac Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-artifact
+          path: other-build/em-image-downloader-darwin-amd64
+
+  sign:
+    name: Sign Mac App
+    needs: build
+    runs-on: macos-latest
+    steps:
+    
+      - name: Checkout
+        uses: actions/checkout@v3
+    
+      - name: Download Mac Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: macos-artifact
+          path: dist
+
+      - name: Package Mac App
+        run: |
+          chmod +x dist/em-image-downloader-darwin-amd64
+          mkdir -p dist/em-image-downloader-darwin-amd64.app/Contents/MacOS
+          mv dist/em-image-downloader-darwin-amd64 dist/em-image-downloader-darwin-amd64.app/Contents/MacOS/em-image-downloader-darwin-amd64
+          chmod +x dist/em-image-downloader-darwin-amd64.app
+
+      - name: Sign Mac App
+        env: 
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERT_PWD }}
+          MACOS_KEYCHAIN_PWD: ${{ secrets.MACOS_KEYCHAIN_PWD }}
+          MACOS_CERT_NAME: ${{ secrets.MACOS_CERT_NAME }}
+        run: |
+          echo $MACOS_CERTIFICATE | base64 --decode > Certis.p12
+          security create-keychain -p $MACOS_KEYCHAIN_PWD build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p $MACOS_KEYCHAIN_PWD build.keychain
+          security import Certis.p12 -k build.keychain -P $MACOS_CERTIFICATE_PWD -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $MACOS_KEYCHAIN_PWD build.keychain
+          /usr/bin/codesign --force -s $MACOS_CERT_NAME dist/em-image-downloader-darwin-amd64.app -v
+
+      - name: Tar Mac App
+        run: |
+          tar -zcvf em-image-downloader-darwin-amd64.tar.gz dist/em-image-downloader-darwin-amd64.app
+
+      - name: Upload Signed Mac Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-signed-artifact
+          path: em-image-downloader-darwin-amd64.tar.gz
+    
+  publish:
+    name: Publish Apps
+    needs: sign
+    runs-on: ubuntu-latest
+    steps:
+    
+        - name: Checkout
+          uses: actions/checkout@v3
+
+        - name: Download Signed Mac Artifact
+          uses: actions/download-artifact@v3
+          with:
+            name: macos-signed-artifact
+            path: dist
+        
+        - name: Download Windows Artifact
+          uses: actions/download-artifact@v3
+          with:
+            name: windows-artifact
+            path: dist
+
+        - name: Publish Apps
+          uses: skx/github-action-publish-binaries@master
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            args: dist/*
+
+        - name: Delete All Artifacts
+          uses: geekyeggo/delete-artifact@v2
+          with:
+            name: |
+              *
