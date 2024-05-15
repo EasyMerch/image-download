@@ -279,8 +279,16 @@ func urlToFile(url, name string) error {
 		return nil
 	}
 
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 25 {
+				return errors.New("stopped after 25 redirects")
+			}
+			return nil
+		},
+	}
 	// don't worry about errors
-	response, err := http.Get(url)
+	response, err := client.Get(url)
 	if err != nil {
 		warn(err)
 		return err
